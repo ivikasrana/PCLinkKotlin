@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PCLink</title>
+<style>
+:root{--bg:#f2f2f7;--card:#fff;--label:#1c1c1e;--sec:#6b6b72;--line:#d9d9de;--fill:#e8e8ed;--tint:#007aff;--red:#ff3b30}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--label:#f5f5f7;--sec:#9a9aa3;--line:#38383a;--fill:#2c2c2e;--tint:#0a84ff;--red:#ff453a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--label);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:34px;letter-spacing:-1px;margin:8px 0 4px}
+.path{color:var(--sec);margin-bottom:16px;word-break:break-all}
+.path a{color:var(--tint);text-decoration:none}
+.tile{background:var(--card);border:.5px solid var(--line);border-radius:22px;padding:8px 16px;margin-bottom:16px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:.5px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row a{color:var(--label);text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row small{color:var(--sec)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+button,label.btn{border:0;border-radius:12px;background:var(--tint);color:#fff;font:inherit;font-size:15px;font-weight:500;padding:11px 16px;cursor:pointer}
+button.ghost,label.btn.ghost{background:var(--fill);color:var(--label)}
+button.del{background:transparent;color:var(--red);padding:6px 10px}
+input[type=file]{display:none}
+#status{color:var(--sec);margin:0 0 12px;min-height:20px}
+</style>
+</head>
+<body>
+<main>
+<h1>PCLink</h1>
+<div class="path" id="path"></div>
+<div class="bar">
+<label class="btn">Upload files<input type="file" id="up" multiple></label>
+<label class="btn ghost">Install APKs<input type="file" id="apk" multiple accept=".apk"></label>
+<button class="ghost" id="mk">New folder</button>
+</div>
+<p id="status"></p>
+<div class="tile" id="list"></div>
+</main>
+<script>
+(function(){
+var base=location.pathname.endsWith('/')?location.pathname:location.pathname+'/';
+var list=document.getElementById('list'),status=document.getElementById('status');
+function enc(n){return encodeURIComponent(n)}
+function size(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';if(n<1073741824)return (n/1048576).toFixed(1)+' MB';return (n/1073741824).toFixed(2)+' GB'}
+function crumbs(){
+var el=document.getElementById('path'),acc='/';
+function link(href,text){var a=document.createElement('a');a.href=href;a.textContent=text;el.appendChild(a)}
+link('/','Phone');
+decodeURIComponent(base).split('/').filter(Boolean).forEach(function(p){acc+=enc(p)+'/';el.appendChild(document.createTextNode(' / '));link(acc,p)});
+}
+function call(method,url,body,onprogress){
+return new Promise(function(ok,fail){
+var x=new XMLHttpRequest();
+x.open(method,url);
+if(onprogress)x.upload.onprogress=onprogress;
+x.onload=function(){x.status<300?ok():fail(new Error(x.status+' '+x.statusText))};
+x.onerror=function(){fail(new Error('network error'))};
+x.send(body||null);
+});
+}
+function load(){
+fetch(base+'?list').then(function(r){if(!r.ok)throw new Error(r.status+' '+r.statusText);return r.json()}).then(function(d){
+list.innerHTML='';
+if(!d.items.length){list.innerHTML='<div class="row"><small>Empty folder</small></div>'}
+d.items.forEach(function(it){
+var row=document.createElement('div');row.className='row';
+var a=document.createElement('a');a.href=base+enc(it.name)+(it.dir?'/':'');a.textContent=(it.dir?'📁 ':'')+it.name;
+var s=document.createElement('small');s.textContent=it.dir?'':size(it.size);
+var b=document.createElement('button');b.className='del';b.textContent='Delete';
+b.onclick=function(){if(confirm('Delete '+it.name+'?'))call('DELETE',base+enc(it.name)).then(load,function(e){status.textContent=e.message})};
+row.appendChild(a);row.appendChild(s);row.appendChild(b);list.appendChild(row);
+});
+}).catch(function(e){status.textContent='Could not load folder: '+e.message});
+}
+function send(files,prefix){
+var chain=Promise.resolve();
+Array.prototype.forEach.call(files,function(f){
+chain=chain.then(function(){
+status.textContent='Sending '+f.name+'...';
+return call('PUT',prefix+enc(f.name),f,function(e){if(e.lengthComputable)status.textContent='Sending '+f.name+' '+Math.round(e.loaded*100/e.total)+'%'});
+}).then(function(){status.textContent='Sent '+f.name},function(e){status.textContent='Failed '+f.name+': '+e.message});
+});
+return chain.then(load);
+}
+document.getElementById('up').onchange=function(e){send(e.target.files,base);e.target.value=''};
+document.getElementById('apk').onchange=function(e){send(e.target.files,'/_install/');e.target.value=''};
+document.getElementById('mk').onclick=function(){
+var n=prompt('Folder name');
+if(n)call('MKCOL',base+enc(n)).then(load,function(e){status.textContent=e.message});
+};
+crumbs();load();
+})();
+</script>
+</body>
+</html>
