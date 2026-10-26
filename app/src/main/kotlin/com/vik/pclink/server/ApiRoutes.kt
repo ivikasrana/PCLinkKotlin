@@ -13,7 +13,6 @@ import com.vik.pclink.server.RequestBody.Companion.PART_SUFFIX
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Method
 import fi.iki.elonen.NanoHTTPD.Response
-import fi.iki.elonen.NanoHTTPD.newFixedLengthResponse
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -25,7 +24,7 @@ class ApiRoutes(
     private val log: (String) -> Unit,
 ) {
     private fun json(body: Any, code: Int = 200, text: String = "OK"): Response =
-        newFixedLengthResponse(Code(code, text), "application/json; charset=utf-8", body.toString())
+        reply(code, text, body.toString(), JSON)
 
     private fun fail(code: Int, text: String): Response = json(JSONObject().put("error", text), code, text)
 
@@ -65,38 +64,52 @@ class ApiRoutes(
         return json(JSONObject().put("items", items))
     }
 
-    private fun partOf(target: File) = File(target.parentFile, target.name + PART_SUFFIX)
+    private class Upload(val target: File, val total: Long, val mtime: Long) {
+        val part = File(target.parentFile, "${target.name}.$total-$mtime$PART_SUFFIX")
+
+        fun dropStale() {
+            val pattern = Regex(Regex.escape(target.name) + """(\.-?\d+--?\d+)?""" + Regex.escape(PART_SUFFIX))
+            target.parentFile?.listFiles { f -> f != part && pattern.matches(f.name) }?.forEach { it.delete() }
+        }
+    }
+
+    private fun upload(s: IHTTPSession): Upload? {
+        val target = resolve(param(s, "path") ?: return null) ?: return null
+        return Upload(target, param(s, "total")?.toLongOrNull() ?: -1L, param(s, "mtime")?.toLongOrNull() ?: 0L)
+    }
 
     private fun chunkStatus(s: IHTTPSession): Response {
-        val target = resolve(param(s, "path") ?: return fail(400, "path required")) ?: return fail(403, "Forbidden")
-        val part = partOf(target)
-        return json(JSONObject().put("part", if (part.exists()) part.length() else 0).put("size", if (target.isFile) target.length() else -1))
+        val u = upload(s) ?: return fail(400, "path required")
+        val part = u.part
+        return json(JSONObject().put("part", if (part.exists()) part.length() else 0).put("size", if (u.target.isFile) u.target.length() else -1))
     }
 
     private fun chunkPut(s: IHTTPSession, body: RequestBody): Response {
-        val target = resolve(param(s, "path") ?: return fail(400, "path required")) ?: return fail(403, "Forbidden")
+        val u = upload(s) ?: return fail(400, "path required")
+        val target = u.target
         if (target == root || target.isDirectory) return fail(405, "Method Not Allowed")
         val offset = param(s, "offset")?.toLongOrNull() ?: 0L
-        val total = param(s, "total")?.toLongOrNull() ?: -1L
-        val mtime = param(s, "mtime")?.toLongOrNull() ?: 0L
         target.parentFile?.mkdirs()
-        val part = partOf(target)
-        if (offset == 0L) part.delete()
+        val part = u.part
+        if (offset == 0L) {
+            part.delete()
+            u.dropStale()
+        }
         val have = if (part.exists()) part.length() else 0L
         if (offset != have) return json(JSONObject().put("error", "offset mismatch").put("part", have), 409, "Conflict")
         body.saveTo(part, append = true)
         val size = part.length()
-        if (total in 0 until size) {
+        if (u.total in 0 until size) {
             part.delete()
             return fail(400, "more data than total")
         }
-        if (total == size) {
+        if (u.total == size) {
             target.delete()
             if (!part.renameTo(target)) {
                 part.copyTo(target, overwrite = true)
                 part.delete()
             }
-            if (mtime > 0) target.setLastModified(mtime)
+            if (u.mtime > 0) target.setLastModified(u.mtime)
             log("Uploaded ${target.name}")
             return json(JSONObject().put("done", true).put("size", size))
         }

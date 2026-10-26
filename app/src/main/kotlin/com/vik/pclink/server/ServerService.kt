@@ -8,9 +8,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -25,6 +32,13 @@ class ServerService : Service() {
     private var wake: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
     private var wifiPerf: WifiManager.WifiLock? = null
+    private var boundIp: String? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val recheck = Runnable { followAddress() }
+    private val network = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = schedule()
+        override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = schedule()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -39,9 +53,29 @@ class ServerService : Service() {
         return START_STICKY
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        val request = NetworkRequest.Builder().removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+        runCatching { getSystemService(ConnectivityManager::class.java).registerNetworkCallback(request, network) }
+    }
+
     override fun onDestroy() {
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network) }
+        handler.removeCallbacks(recheck)
         stopServers()
         super.onDestroy()
+    }
+
+    private fun schedule() {
+        handler.removeCallbacks(recheck)
+        handler.postDelayed(recheck, ADDRESS_SETTLE_MS)
+    }
+
+    private fun followAddress() {
+        val ip = Prefs.activeIp(this) ?: return
+        if (stoppers.isEmpty() || ip == boundIp) return
+        ServerState.add("Address changed to $ip")
+        startServers()
     }
 
     private fun enterForeground(text: String) {
@@ -113,6 +147,7 @@ class ServerService : Service() {
         discovery.start()
         started += discovery::stop
         stoppers = started
+        boundIp = ip
         acquireLocks()
         ServerState.urls.value = urls
         ServerState.running.value = true
@@ -130,6 +165,7 @@ class ServerService : Service() {
     private fun stopServers() {
         stoppers.forEach { it() }
         stoppers = emptyList()
+        boundIp = null
         wake?.takeIf { it.isHeld }?.release()
         wifi?.takeIf { it.isHeld }?.release()
         wifiPerf?.takeIf { it.isHeld }?.release()
@@ -152,6 +188,7 @@ class ServerService : Service() {
     companion object {
         const val STOP = "com.vik.pclink.STOP"
         private const val CHANNEL = "server"
+        private const val ADDRESS_SETTLE_MS = 2000L
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, ServerService::class.java))

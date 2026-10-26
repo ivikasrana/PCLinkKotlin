@@ -13,7 +13,6 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.channels.Channels
-import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -167,7 +166,7 @@ class FtpServer(
                     say("331 Password required")
                 }
                 "PASS" -> {
-                    val ok = MessageDigest.isEqual(name.toByteArray(), user.toByteArray()) && MessageDigest.isEqual(arg.toByteArray(), password.toByteArray())
+                    val ok = credentialsMatch(name, arg, user, password)
                     authed = ok
                     say(if (ok) "230 Logged in" else "530 Login incorrect")
                 }
