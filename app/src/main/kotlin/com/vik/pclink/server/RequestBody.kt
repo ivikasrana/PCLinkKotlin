@@ -23,7 +23,7 @@ class RequestBody(private val s: IHTTPSession) {
         }
     }
 
-    fun saveTo(file: File, append: Boolean = false) = FileOutputStream(file, append).use { copyTo(it) }
+    fun saveTo(file: File, append: Boolean = false) = FileOutputStream(file, append).buffered(STORAGE_BUFFER).use { copyTo(it) }
 
     fun saveReplacing(target: File) {
         val tmp = File(target.parentFile, target.name + ".upload" + PART_SUFFIX)
@@ -57,5 +57,6 @@ class RequestBody(private val s: IHTTPSession) {
     companion object {
         const val PART_SUFFIX = ".pclinkpart"
         const val MAX_TEXT = 1L shl 20
+        const val STORAGE_BUFFER = 1 shl 20
     }
 }

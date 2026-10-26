@@ -1,5 +1,6 @@
 package com.vik.pclink.server
 
+import com.vik.pclink.server.RequestBody.Companion.STORAGE_BUFFER
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
@@ -41,6 +42,7 @@ class FtpServer(
         pool.execute {
             while (!server.isClosed) {
                 val client = try { server.accept() } catch (e: IOException) { break }
+                runCatching { client.tcpNoDelay = true }
                 val session = Session(client)
                 sessions += session
                 try {
@@ -135,7 +137,10 @@ class FtpServer(
                     server.soTimeout = (deadline - System.currentTimeMillis()).coerceAtLeast(1).toInt()
                     data = server.accept()
                 }
-                data.apply { soTimeout = 60000 }
+                data.apply {
+                    soTimeout = 60000
+                    tcpNoDelay = true
+                }
             } catch (e: Exception) {
                 null
             } finally {
@@ -314,7 +319,7 @@ class FtpServer(
             withData("226 Transfer complete") { data ->
                 FileInputStream(f).use { stream ->
                     if (offset > 0) stream.channel.position(offset)
-                    data.getOutputStream().use { stream.copyTo(it, 65536) }
+                    data.getOutputStream().use { stream.buffered(STORAGE_BUFFER).copyTo(it, 65536) }
                 }
             }
         }
@@ -345,7 +350,7 @@ class FtpServer(
                     raf.seek(offset)
                     Channels.newOutputStream(raf.channel)
                 } else FileOutputStream(target, append && !install)
-                sink.use { out -> data.getInputStream().copyTo(out, 65536) }
+                sink.buffered(STORAGE_BUFFER).use { out -> data.getInputStream().copyTo(out, 65536) }
             }
             when {
                 install && ok -> {

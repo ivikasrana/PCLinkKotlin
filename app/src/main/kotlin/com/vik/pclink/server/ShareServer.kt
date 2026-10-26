@@ -13,8 +13,11 @@ import fi.iki.elonen.NanoHTTPD.newFixedLengthResponse
 import org.json.JSONArray
 import org.json.JSONObject
 import com.vik.pclink.server.RequestBody.Companion.MAX_TEXT
+import com.vik.pclink.server.RequestBody.Companion.STORAGE_BUFFER
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
+import java.net.Socket
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,6 +60,11 @@ class ShareServer(
         val userOk = MessageDigest.isEqual(decoded.substring(0, i).toByteArray(), user.toByteArray())
         val passOk = MessageDigest.isEqual(decoded.substring(i + 1).toByteArray(), password.toByteArray())
         return userOk && passOk
+    }
+
+    override fun createClientHandler(finalAccept: Socket, inputStream: InputStream): ClientHandler {
+        runCatching { finalAccept.tcpNoDelay = true }
+        return super.createClientHandler(finalAccept, inputStream)
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -184,13 +192,13 @@ class ShareServer(
                 end = (b.toLongOrNull() ?: (len - 1)).coerceAtMost(len - 1)
             }
             if (start >= len || start > end) return reply(416, "Range Not Satisfiable").apply { addHeader("Content-Range", "bytes */$len") }
-            val stream = FileInputStream(f).also { it.channel.position(start) }
+            val stream = FileInputStream(f).also { it.channel.position(start) }.buffered(STORAGE_BUFFER)
             return newFixedLengthResponse(Code(206, "Partial Content"), mime, stream, end - start + 1).apply {
                 addHeader("Content-Range", "bytes $start-$end/$len")
                 addHeader("Accept-Ranges", "bytes")
             }
         }
-        return newFixedLengthResponse(Code(200, "OK"), mime, FileInputStream(f), len).apply { addHeader("Accept-Ranges", "bytes") }
+        return newFixedLengthResponse(Code(200, "OK"), mime, FileInputStream(f).buffered(STORAGE_BUFFER), len).apply { addHeader("Accept-Ranges", "bytes") }
     }
 
     private fun put(target: File, body: RequestBody): Response {
