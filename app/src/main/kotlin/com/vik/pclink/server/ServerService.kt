@@ -26,18 +26,30 @@ import com.vik.pclink.R
 import com.vik.pclink.data.Prefs
 import org.json.JSONObject
 import java.io.File
+import java.net.Inet4Address
+import java.util.concurrent.ConcurrentHashMap
 
 class ServerService : Service() {
     private var stoppers = emptyList<() -> Unit>()
     private var wake: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
     private var wifiPerf: WifiManager.WifiLock? = null
-    private var boundIp: String? = null
+    @Volatile private var boundIp: String? = null
     private val handler = Handler(Looper.getMainLooper())
     private val recheck = Runnable { followAddress() }
+    private val networkIps = ConcurrentHashMap<Network, List<String>>()
+    @Volatile private var boundLost = false
     private val network = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = schedule()
-        override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = schedule()
+        override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
+            networkIps[network] = properties.linkAddresses.mapNotNull { a -> a.address.takeIf { it is Inet4Address }?.hostAddress }
+            schedule()
+        }
+        override fun onLost(network: Network) {
+            val ips = networkIps.remove(network).orEmpty()
+            if (boundIp != null && boundIp in ips) boundLost = true
+            schedule()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -73,8 +85,8 @@ class ServerService : Service() {
 
     private fun followAddress() {
         val ip = Prefs.activeIp(this) ?: return
-        if (stoppers.isEmpty() || ip == boundIp) return
-        ServerState.add("Address changed to $ip")
+        if (stoppers.isEmpty() || (ip == boundIp && !boundLost)) return
+        ServerState.add(if (ip == boundIp) "Network reconnected on $ip" else "Address changed to $ip")
         startServers()
     }
 
@@ -166,6 +178,7 @@ class ServerService : Service() {
         stoppers.forEach { it() }
         stoppers = emptyList()
         boundIp = null
+        boundLost = false
         wake?.takeIf { it.isHeld }?.release()
         wifi?.takeIf { it.isHeld }?.release()
         wifiPerf?.takeIf { it.isHeld }?.release()
