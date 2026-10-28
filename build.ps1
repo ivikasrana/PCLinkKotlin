@@ -1,11 +1,11 @@
-param([switch]$Install, [switch]$Release, [switch]$Debug, [switch]$Quick)
+param([switch]$Install, [switch]$Release, [switch]$Debug, [switch]$Lite, [switch]$Quick)
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $dist = Join-Path $root 'dist'
 $signed = Test-Path (Join-Path $root 'keystore.properties')
 if ($Release -and -not $signed) { throw "keystore.properties not found; the release APK would be unsigned" }
-$variants = if ($Release) { @('release') } elseif ($Debug -or -not $signed) { @('debug') } else { @('debug', 'release') }
+$variants = if ($Lite) { @('lite') } elseif ($Release) { @('release') } elseif ($Debug -or -not $signed) { @('lite', 'debug') } else { @('lite', 'debug', 'release') }
 
 Push-Location $root
 try {
@@ -19,9 +19,11 @@ try {
 
     $outs = foreach ($variant in $variants) {
         $apk = Join-Path $root "app\build\outputs\apk\$variant\app-$variant.apk"
-        $out = Join-Path $dist $(if ($variant -eq 'release') { 'PCLink-signed.apk' } else { 'PCLink.apk' })
+        $out = Join-Path $dist $(switch ($variant) { 'release' { 'PCLink-signed.apk' } 'lite' { 'PCLink-lite.apk' } default { 'PCLink.apk' } })
         Remove-Item $apk, $out -ErrorAction SilentlyContinue
-        if ($variant -eq 'release') {
+        if ($variant -eq 'lite') {
+            & "$root\gradlew.bat" :app:assembleLite
+        } elseif ($variant -eq 'release') {
             & "$root\gradlew.bat" :app:assembleRelease
         } else {
             & "$root\gradlew.bat" :app:assembleDebug

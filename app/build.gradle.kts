@@ -37,6 +37,13 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
+        create("lite") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "MIRROR", "false")
+        }
+        all { if (name != "lite") buildConfigField("boolean", "MIRROR", "true") }
     }
     lint {
         checkReleaseBuilds = false

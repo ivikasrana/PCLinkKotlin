@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.vik.pclink.BuildConfig
 import com.vik.pclink.data.Net
 import com.vik.pclink.data.Paths
 import com.vik.pclink.data.Prefs
@@ -289,7 +290,7 @@ private fun Home(resumeTick: Int) {
             PermRow("Install apps", installOk) { openForApp(AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES) }
             PermRow("Unrestricted battery", batteryOk) { openForApp(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) }
             PermRow("Notifications", notifyOk) { runtime.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS)) }
-            PermRow("Notification access", mirrorOk) { ctx.startActivity(Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            if (BuildConfig.MIRROR) PermRow("Notification access", mirrorOk) { ctx.startActivity(Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
             if (lanNeeded) PermRow("Local network", lanOk) { runtime.launch(arrayOf(LOCAL_NETWORK)) }
         }
 
