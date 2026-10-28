@@ -13,10 +13,11 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.channels.Channels
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
@@ -148,21 +149,24 @@ class FtpServer(
         }
 
         private fun listLine(f: File): String {
-            val old = System.currentTimeMillis() - f.lastModified() > 180L * 86400000
-            val date = SimpleDateFormat(if (old) "MMM dd  yyyy" else "MMM dd HH:mm", Locale.US).format(Date(f.lastModified()))
-            val kind = if (f.isDirectory) "drwxr-xr-x" else "-rw-r--r--"
-            val size = if (f.isDirectory) 0 else f.length()
+            val modified = f.lastModified()
+            val old = System.currentTimeMillis() - modified > 180L * 86400000
+            val date = (if (old) OLD_DATE else RECENT_DATE).format(Instant.ofEpochMilli(modified))
+            val dir = f.isDirectory
+            val kind = if (dir) "drwxr-xr-x" else "-rw-r--r--"
+            val size = if (dir) 0 else f.length()
             return "$kind 1 pclink pclink ${size.toString().padStart(12)} $date ${f.name}"
         }
 
         private fun handle(cmd: String, arg: String): Boolean {
-            if (!authed && cmd !in setOf("USER", "PASS", "QUIT", "FEAT", "OPTS", "SYST", "AUTH", "NOOP")) {
+            if (!authed && cmd !in PRE_LOGIN) {
                 say("530 Not logged in")
                 return true
             }
             when (cmd) {
                 "USER" -> {
                     name = arg
+                    authed = false
                     say("331 Password required")
                 }
                 "PASS" -> {
@@ -254,8 +258,7 @@ class FtpServer(
                 "MDTM" -> {
                     val f = file(virtual(arg))
                     if (f != null && f.exists()) {
-                        val stamp = SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(f.lastModified()))
-                        say("213 $stamp")
+                        say("213 ${MDTM_DATE.format(Instant.ofEpochMilli(f.lastModified()))}")
                     } else say("550 Not found")
                 }
                 else -> say("502 Not implemented")
@@ -274,7 +277,7 @@ class FtpServer(
                     return
                 }
                 if (f.isDirectory) {
-                    (f.listFiles() ?: emptyArray()).sortedBy { it.name.lowercase() }.forEach { lines += if (namesOnly) it.name else listLine(it) }
+                    (f.listFiles() ?: emptyArray()).sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }).forEach { lines += if (namesOnly) it.name else listLine(it) }
                     if (v == "/") lines += if (namesOnly) "_install" else "drwxr-xr-x 1 pclink pclink ${"0".padStart(12)} Jan 01  2024 _install"
                 } else lines += if (namesOnly) f.name else listLine(f)
             }
@@ -360,5 +363,12 @@ class FtpServer(
                 ok -> log("Uploaded ${target.name}")
             }
         }
+    }
+
+    private companion object {
+        val PRE_LOGIN = setOf("USER", "PASS", "QUIT", "FEAT", "OPTS", "SYST", "AUTH", "NOOP")
+        val OLD_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM dd  yyyy", Locale.US).withZone(ZoneId.systemDefault())
+        val RECENT_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM dd HH:mm", Locale.US).withZone(ZoneId.systemDefault())
+        val MDTM_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss", Locale.US).withZone(ZoneOffset.UTC)
     }
 }

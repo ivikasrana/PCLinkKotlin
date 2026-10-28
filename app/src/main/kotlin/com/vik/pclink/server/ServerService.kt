@@ -33,7 +33,6 @@ class ServerService : Service() {
     private var stoppers = emptyList<() -> Unit>()
     private var wake: PowerManager.WakeLock? = null
     private var wifi: WifiManager.WifiLock? = null
-    private var wifiPerf: WifiManager.WifiLock? = null
     @Volatile private var boundIp: String? = null
     private val handler = Handler(Looper.getMainLooper())
     private val recheck = Runnable { followAddress() }
@@ -181,10 +180,8 @@ class ServerService : Service() {
         boundLost = false
         wake?.takeIf { it.isHeld }?.release()
         wifi?.takeIf { it.isHeld }?.release()
-        wifiPerf?.takeIf { it.isHeld }?.release()
         wake = null
         wifi = null
-        wifiPerf = null
         if (ServerState.running.value) ServerState.add("Stopped")
         ServerState.running.value = false
         ServerState.urls.value = emptyList()
@@ -194,8 +191,6 @@ class ServerService : Service() {
         wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pclink:server").apply { acquire() }
         val manager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         wifi = manager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "pclink:wifi").apply { acquire() }
-        @Suppress("DEPRECATION")
-        wifiPerf = manager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "pclink:wifiperf").apply { acquire() }
     }
 
     companion object {

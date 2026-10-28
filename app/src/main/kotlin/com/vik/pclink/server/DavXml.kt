@@ -2,20 +2,22 @@ package com.vik.pclink.server
 
 import android.net.Uri
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.TimeZone
 
 internal object DavXml {
     private const val OK = "<D:status>HTTP/1.1 200 OK</D:status>"
+    private val HTTP_DATE = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).withZone(ZoneOffset.UTC)
+    private val ISO_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).withZone(ZoneOffset.UTC)
 
     fun document(body: String) = "<?xml version=\"1.0\" encoding=\"utf-8\"?>$body"
 
     fun multistatus(responses: String) = "<D:multistatus xmlns:D=\"DAV:\">$responses</D:multistatus>"
 
-    fun entry(href: String, f: File, root: File): String =
-        if (f.isDirectory) collection(href, if (f == root) "" else f.name, f.lastModified())
+    fun entry(href: String, f: File, root: File, dir: Boolean = f.isDirectory): String =
+        if (dir) collection(href, if (f == root) "" else f.name, f.lastModified())
         else item(href, f.name, f.length(), f.lastModified(), true)
 
     fun collection(href: String, name: String, modified: Long = System.currentTimeMillis()): String =
@@ -46,9 +48,7 @@ internal object DavXml {
     private fun escape(text: String): String =
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-    private fun httpDate(ms: Long): String =
-        SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).apply { timeZone = TimeZone.getTimeZone("GMT") }.format(Date(ms))
+    private fun httpDate(ms: Long): String = HTTP_DATE.format(Instant.ofEpochMilli(ms))
 
-    private fun isoDate(ms: Long): String =
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date(ms))
+    private fun isoDate(ms: Long): String = ISO_DATE.format(Instant.ofEpochMilli(ms))
 }

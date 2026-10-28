@@ -14,7 +14,7 @@ fun File.child(path: String): File? {
 }
 
 fun transferFile(src: File, dest: File, move: Boolean): Boolean {
-    if (dest == src || dest.isInside(src)) return false
+    if (dest == src || dest.isInside(src) || src.isInside(dest)) return false
     if (move && src.renameTo(dest)) return true
     val copied = runCatching { src.copyRecursively(dest, overwrite = true) }.getOrDefault(false)
     return copied && (!move || src.deleteRecursively())

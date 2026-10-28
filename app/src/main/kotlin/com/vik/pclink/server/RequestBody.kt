@@ -10,6 +10,7 @@ import java.nio.charset.Charset
 
 class RequestBody(private val s: IHTTPSession) {
     val length = (s.headers["content-length"]?.toLongOrNull() ?: 0L).coerceAtLeast(0L)
+    val chunked = s.headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true
     var remaining = length
         private set
 

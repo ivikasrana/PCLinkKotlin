@@ -55,6 +55,7 @@ class ShareServer(
                 addHeader("WWW-Authenticate", "Basic realm=\"PCLink\"")
                 addHeader("Connection", "close")
             }
+            body.chunked -> reply(411, "Length Required", "Chunked uploads are not supported").apply { closeConnection(true) }
             else -> try {
                 route(session, session.method, body)
             } catch (e: Exception) {
@@ -145,9 +146,10 @@ class ShareServer(
     private fun listing(dir: File): Response {
         val items = JSONArray()
         (dir.listFiles() ?: emptyArray())
-            .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
-            .forEach {
-                items.put(JSONObject().put("name", it.name).put("dir", it.isDirectory).put("size", if (it.isDirectory) 0 else it.length()).put("mtime", it.lastModified()))
+            .map { it to it.isDirectory }
+            .sortedWith(compareBy<Pair<File, Boolean>>({ !it.second }).thenBy(String.CASE_INSENSITIVE_ORDER) { it.first.name })
+            .forEach { (f, isDir) ->
+                items.put(JSONObject().put("name", f.name).put("dir", isDir).put("size", if (isDir) 0 else f.length()).put("mtime", f.lastModified()))
             }
         return reply(200, "OK", JSONObject().put("items", items).toString(), JSON)
     }
@@ -196,7 +198,7 @@ class ShareServer(
         if (!src.exists()) return reply(404, "Not Found")
         val destPath = s.headers["destination"]?.let { Uri.parse(it).path } ?: return reply(400, "Bad Request")
         val dest = resolve(destPath) ?: return reply(403, "Forbidden")
-        if (dest == root || dest == src || dest.isInside(src) || src == root) return reply(403, "Forbidden")
+        if (dest == root || dest == src || dest.isInside(src) || src.isInside(dest) || src == root) return reply(403, "Forbidden")
         val parent = dest.parentFile
         if (parent == null || !parent.isDirectory) return reply(409, "Conflict")
         val existed = dest.exists()
@@ -222,7 +224,10 @@ class ShareServer(
         val sb = StringBuilder(DavXml.entry(DavXml.href(path, f.isDirectory), f, root))
         if (f.isDirectory && depth != "0") {
             val base = path.trimEnd('/')
-            (f.listFiles() ?: emptyArray()).forEach { sb.append(DavXml.entry(DavXml.href("$base/${it.name}", it.isDirectory), it, root)) }
+            (f.listFiles() ?: emptyArray()).forEach {
+                val isDir = it.isDirectory
+                sb.append(DavXml.entry(DavXml.href("$base/${it.name}", isDir), it, root, isDir))
+            }
             if (f == root) sb.append(DavXml.collection("/_install/", "_install"))
         }
         return xml(DavXml.multistatus(sb.toString()))
