@@ -251,9 +251,10 @@ private fun Home(resumeTick: Int) {
         var draft by rememberSaveable { mutableStateOf("") }
         Tile {
             SectionTitle("Text")
-            inbox.take(3).forEach { item ->
+            inbox.take(3).forEachIndexed { index, item ->
                 TextArea(item, {}, Modifier.padding(bottom = 6.dp), readOnly = true, minHeight = 56.dp, maxLines = 6)
-                Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.End) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    Chip("Delete", false) { ServerState.removeInbox(index) }
                     Chip("Copy", true) { copyText(ctx, item) }
                 }
             }

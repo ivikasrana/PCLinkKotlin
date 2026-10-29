@@ -29,6 +29,10 @@ object ServerState {
         inbox.update { (listOf(text) + it).take(20) }
     }
 
+    fun removeInbox(index: Int) {
+        inbox.update { list -> if (index in list.indices) list.filterIndexed { i, _ -> i != index } else list }
+    }
+
     fun pushOutbox(text: String) {
         synchronized(outbox) {
             outbox.addLast(text)
