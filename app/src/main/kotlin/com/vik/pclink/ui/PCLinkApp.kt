@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -183,7 +184,18 @@ private fun Home(resumeTick: Int) {
     val batteryOk = remember(resumeTick) { ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName) }
     val notifyOk = remember(resumeTick) { Build.VERSION.SDK_INT < 33 || granted(ctx, Manifest.permission.POST_NOTIFICATIONS) }
     val mirrorOk = remember(resumeTick) { NotificationManagerCompat.getEnabledListenerPackages(ctx).contains(ctx.packageName) }
-    val lanNeeded = Build.VERSION.SDK_INT >= 37
+    val locationOk = remember(resumeTick) { granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION) }
+    var ssids by remember { mutableStateOf(Prefs.allowedSsids(ctx)) }
+    var newSsid by rememberSaveable { mutableStateOf("") }
+    var ssidError by rememberSaveable { mutableStateOf("") }
+
+    fun updateSsids(names: Collection<String>) {
+        Prefs.setAllowedSsids(ctx, names)
+        ssids = Prefs.allowedSsids(ctx)
+        if (running) ServerService.start(ctx)
+    }
+
+    val lanNeeded =Build.VERSION.SDK_INT >= 37
     val lanOk = remember(resumeTick) { !lanNeeded || granted(ctx, LOCAL_NETWORK) }
 
     Column(
@@ -281,6 +293,37 @@ private fun Home(resumeTick: Int) {
             Segmented(listOf("off" to "Off", "on" to "On"), if (autostart) "on" else "off", { autostart = it == "on" }, Modifier.padding(bottom = 12.dp))
             Notice(problem, modifier = Modifier.padding(bottom = 10.dp))
             AppButton("Save", { commit() }, Modifier.fillMaxWidth(), enabled = problem.isEmpty())
+        }
+
+        Tile {
+            SectionTitle("Allowed Wi-Fi")
+            Text(
+                if (ssids.isEmpty()) "Any network is allowed. Add a name to share only on those networks." else "Sharing only works on these networks.",
+                color = t.secondary, fontSize = 14.sp, modifier = Modifier.padding(bottom = 10.dp),
+            )
+            if (ssids.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ssids.forEach { name -> Chip("$name  ✕", true) { updateSsids(ssids - name) } }
+                }
+            }
+            Field(newSsid, { newSsid = it }, Modifier.padding(bottom = 12.dp), "Wi-Fi name")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppButton("Add", {
+                    updateSsids(ssids + newSsid.trim())
+                    newSsid = ""
+                }, Modifier.weight(1f), ButtonKind.Secondary, enabled = newSsid.isNotBlank())
+                AppButton("Add current", {
+                    if (locationOk) {
+                        val name = Net.ssid(ctx)
+                        if (name == null) ssidError = "Could not read the Wi-Fi name. Turn location on and connect to Wi-Fi." else {
+                            ssidError = ""
+                            updateSsids(ssids + name)
+                        }
+                    } else runtime.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
+                }, Modifier.weight(1f), ButtonKind.Ghost)
+            }
+            Notice(ssidError, modifier = Modifier.padding(top = 10.dp))
+            if (ssids.isNotEmpty() && !locationOk) PermRow("Location (reads Wi-Fi name)", false) { runtime.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)) }
         }
 
         Tile {

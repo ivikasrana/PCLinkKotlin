@@ -23,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.vik.pclink.R
+import com.vik.pclink.data.Net
 import com.vik.pclink.data.Prefs
 import org.json.JSONObject
 import java.io.File
@@ -82,9 +83,21 @@ class ServerService : Service() {
         handler.postDelayed(recheck, ADDRESS_SETTLE_MS)
     }
 
+    private fun refusal() =
+        if (Net.ssid(this) == null) "Wi-Fi name unavailable. Allow location access, turn location on and connect to an allowed Wi-Fi."
+        else "Not on an allowed Wi-Fi network."
+
     private fun followAddress() {
+        if (stoppers.isEmpty()) return
+        if (!Prefs.wifiAllowed(this)) {
+            ServerState.add("Left allowed Wi-Fi, stopping")
+            stopServers()
+            ServerState.error.value = refusal()
+            quit()
+            return
+        }
         val ip = Prefs.activeIp(this) ?: return
-        if (stoppers.isEmpty() || (ip == boundIp && !boundLost)) return
+        if (ip == boundIp && !boundLost) return
         ServerState.add(if (ip == boundIp) "Network reconnected on $ip" else "Address changed to $ip")
         startServers()
     }
@@ -100,6 +113,7 @@ class ServerService : Service() {
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .addAction(0, "Stop", stop)
             .build()
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
@@ -114,6 +128,11 @@ class ServerService : Service() {
         val ip = Prefs.activeIp(this)
         if (ip == null) {
             ServerState.error.value = "No network address found. Connect to Wi-Fi first."
+            quit()
+            return
+        }
+        if (!Prefs.wifiAllowed(this)) {
+            ServerState.error.value = refusal()
             quit()
             return
         }
@@ -163,7 +182,7 @@ class ServerService : Service() {
         ServerState.urls.value = urls
         ServerState.running.value = true
         ServerState.add("Sharing ${s.root}")
-        enterForeground(urls.first().second)
+        enterForeground("Sharing files")
     }
 
     private fun quit() {

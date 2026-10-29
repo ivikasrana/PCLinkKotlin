@@ -2,6 +2,7 @@ package com.vik.pclink.data
 
 import android.content.Context
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Environment
 import android.provider.DocumentsContract
 import java.net.Inet4Address
@@ -75,6 +76,17 @@ object Prefs {
         return all.firstOrNull { it == bindIp(c) } ?: all.firstOrNull()
     }
 
+    fun allowedSsids(c: Context): List<String> = sp(c).getStringSet("ssids", emptySet()).orEmpty().sorted()
+
+    fun setAllowedSsids(c: Context, names: Collection<String>) {
+        sp(c).edit().putStringSet("ssids", names.toSet()).apply()
+    }
+
+    fun wifiAllowed(c: Context): Boolean {
+        val allowed = allowedSsids(c)
+        return allowed.isEmpty() || Net.ssid(c) in allowed
+    }
+
     fun save(c: Context, s: Settings) {
         sp(c).edit()
             .putBoolean("dav", s.dav)
@@ -112,6 +124,13 @@ object Paths {
 }
 
 object Net {
+    @Suppress("DEPRECATION")
+    fun ssid(c: Context): String? = runCatching {
+        c.applicationContext.getSystemService(WifiManager::class.java).connectionInfo?.ssid
+            ?.removeSurrounding("\"")
+            ?.takeIf { it.isNotEmpty() && it != WifiManager.UNKNOWN_SSID }
+    }.getOrNull()
+
     fun addresses(): List<String> = runCatching {
         NetworkInterface.getNetworkInterfaces().toList()
             .filter { it.isUp && !it.isLoopback }
